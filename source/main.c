@@ -79,7 +79,7 @@ Result http_getredirection(char *url, char *out, u32 out_size)
 	if(ret!=0)return ret;
 
 
-	ret = httpcAddRequestHeaderField(&context, "User-Agent", "ironhax");
+	ret = httpcAddRequestHeaderField(&context, "User-Agent", "oot3dhax");
 	if(!ret) ret = httpcBeginRequest(&context);
 	if(ret!=0)
 	{
