@@ -24,10 +24,10 @@ Result FSUSER_ControlArchive(Handle handle, FS_archive archive)
 	cmdbuf[7]=(u32)&b1;
 	cmdbuf[8]=0x1c;
 	cmdbuf[9]=(u32)&b2;
- 
+
 	Result ret=0;
 	if((ret=svcSendSyncRequest(handle)))return ret;
- 
+
 	return cmdbuf[1];
 }
 
@@ -51,7 +51,7 @@ Result write_savedata(char* path, u8* data, u32 size)
 
 	ret = FSUSER_ControlArchive(saveGameFsHandle, saveGameArchive);
 
-	writeFail:
+writeFail:
 	if(fail)sprintf(status, "Failed to write to file: %d\n     %08X %08X", fail, (unsigned int)ret, (unsigned int)bytesWritten);
 	else sprintf(status, "Successfully wrote to file!\n     %08X               ", (unsigned int)bytesWritten);
 
@@ -69,6 +69,30 @@ typedef enum
 	STATE_INSTALLED_PAYLOAD,
 	STATE_ERROR,
 }state_t;
+
+Result http_getredirection(char *url, char *out, u32 out_size)
+{
+	Result ret=0;
+	httpcContext context;
+
+	ret = httpcOpenContext(&context, url, 0);
+	if(ret!=0)return ret;
+
+
+	ret = httpcAddRequestHeaderField(&context, "User-Agent", "ironhax");
+	if(!ret) ret = httpcBeginRequest(&context);
+	if(ret!=0)
+	{
+		httpcCloseContext(&context);
+		return ret;
+	}
+
+	ret = httpcGetResponseHeader(&context, "Location", out, out_size);
+
+	httpcCloseContext(&context);
+
+	return 0;
+}
 
 Result http_download(httpcContext *context, u8** out_buf, u32* out_size)
 {
@@ -111,33 +135,33 @@ off_t save_size;
 
 int read_payload(char* path, u8* data)
 {
-    FILE *file = fopen(path,"rb");
-    if (file == NULL)
-        return 1;
+	FILE *file = fopen(path,"rb");
+	if (file == NULL)
+		return 1;
 
-    // seek to end of file
-    fseek(file,0,SEEK_END);
+	// seek to end of file
+	fseek(file,0,SEEK_END);
 
-    // file pointer tells us the size
-    save_size = ftell(file);
+	// file pointer tells us the size
+	save_size = ftell(file);
 
-    // seek back to start
-    fseek(file,0,SEEK_SET);
+	// seek back to start
+	fseek(file,0,SEEK_SET);
 
-    //allocate a buffer
-    save_buffer=malloc(save_size);
-    if(!save_buffer)
-        return 1;
+	//allocate a buffer
+	save_buffer=malloc(save_size);
+	if(!save_buffer)
+		return 1;
 
-    //read contents !
-    off_t bytesRead = fread(save_buffer,1,save_size,file);
+	//read contents !
+	off_t bytesRead = fread(save_buffer,1,save_size,file);
 
-    //close the file because we like being nice and tidy
-    fclose(file);
+	//close the file because we like being nice and tidy
+	fclose(file);
 
-    if(save_size!=bytesRead)
-        return 1;
-    return 0;
+	if(save_size!=bytesRead)
+		return 1;
+	return 0;
 }
 
 
@@ -148,7 +172,7 @@ int main()
 	gfxInitDefault();
 	gfxSet3D(false);
 
-	Result ret = filesystemInit();
+	filesystemInit();
 
 	PrintConsole topConsole, bttmConsole;
 	consoleInit(GFX_TOP, &topConsole);
@@ -167,8 +191,7 @@ int main()
 
 	int firmware_version[firmware_length] = {0, 0, 9, 0, 0};
 	int firmware_selected_value = 0;
-	
-	static char payload_name[256];
+
 	u8* payload_buf = NULL;
 	u32 payload_size = 0;
 
@@ -192,8 +215,7 @@ int main()
 					strcat(top_text, "\n\n\n Please select your console's firmware version.\nOnly select NEW 3DS if you own a New 3DS (XL).\nD-Pad to select, A to continue.\n");
 					break;
 				case STATE_DOWNLOAD_PAYLOAD:
-					getPayloadName(firmware_version, payload_name);
-					sprintf(top_text, "%s\n\n\n Downloading payload... %s\n", top_text, payload_name);
+					sprintf(top_text, "%s\n\n\n Downloading payload...\n", top_text);
 					break;
 				case STATE_INSTALL_PAYLOAD:
 					strcat(top_text, " Installing payload...\n");
@@ -248,7 +270,7 @@ int main()
 
 					if(firmware_version[firmware_selected_value] < 0) firmware_version[firmware_selected_value] = 0;
 					if(firmware_version[firmware_selected_value] >= firmware_num_values[firmware_selected_value]) firmware_version[firmware_selected_value] = firmware_num_values[firmware_selected_value] - 1;
-					
+
 					if(hidKeysDown() & KEY_A)next_state = STATE_DOWNLOAD_PAYLOAD;
 
 					int offset = 28 + firmware_format_offsets[firmware_selected_value];
@@ -260,10 +282,19 @@ int main()
 			case STATE_DOWNLOAD_PAYLOAD:
 				{
 					httpcContext context;
-					static char url[512];
-					sprintf(url, "http://smealum.github.io/ninjhax2/Pvl9iD2Im5/otherapp/%s.bin", payload_name);
+					static char in_url[512];
+					static char out_url[512];
+					sprintf(in_url, "http://smea.mtheall.com/get_payload.php?version=%s-%s-%s-%s-0-%s", firmware_labels_url[0][firmware_version[0]], firmware_labels_url[1][firmware_version[1]], firmware_labels_url[2][firmware_version[2]], firmware_labels_url[3][firmware_version[3]], firmware_labels_url[4][firmware_version[4]]);
 
-					Result ret = httpcOpenContext(&context, url, 0);
+					Result ret = http_getredirection(in_url, out_url, 512);
+					if(ret)
+					{
+						sprintf(status, "Failed to grab payload url\n    Error code : %08X", (unsigned int)ret);
+						next_state = STATE_ERROR;
+						break;
+					}
+
+					ret = httpcOpenContext(&context, out_url, 0);
 					if(ret)
 					{
 						sprintf(status, "Failed to open http context\n    Error code: %08X", (unsigned int)ret);
@@ -285,8 +316,8 @@ int main()
 			case STATE_INSTALL_PAYLOAD:
 				{
 					static char filename[128];
-                    
-                    sprintf(filename, "save0x.bin.%s", firmware_labels[4][firmware_version[4]]);
+
+					sprintf(filename, "save0x.bin.%s", firmware_labels[4][firmware_version[4]]);
 					read_payload(filename, save_buffer);
 					sprintf(filename, "/save0%d.bin", selected_slot);
 					Result ret = write_savedata(filename, save_buffer, save_size);
@@ -296,6 +327,13 @@ int main()
 						next_state = STATE_ERROR;
 						break;
 					}
+				}
+
+				{
+					// delete file
+					FSUSER_DeleteFile(&saveGameFsHandle, saveGameArchive, FS_makePath(PATH_CHAR, "/payload.bin"));
+
+					FSUSER_ControlArchive(saveGameFsHandle, saveGameArchive);
 				}
 
 				{
